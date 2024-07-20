@@ -26,7 +26,9 @@ arrayvec = "0.7.0"
 bitvec = "1"
 ff = "0.13"
 group = "0.13"
-halo2_proofs = { version = "0.3", path = "../halo2_proofs", default-features = false }
+halo2_proofs = { git = "https://github.com/zcash/halo2.git", package = "halo2_proofs"}
+# halo2_proofs = { version = "0.3", path = "../halo2_proofs", default-features = false }
+korrekt     = { git = "https://github.com/quantstamp/halo2-analyzer.git", package = "korrekt", features = ["use_zcash_halo2_proofs"]}
 lazy_static = "1"
 pasta_curves = "0.5"
 proptest = { version = "1.0.0", optional = true }
@@ -83,3 +85,4 @@ harness = false
 name = "sha256"
 harness = false
 required-features = ["unstable-sha256-gadget"]
+

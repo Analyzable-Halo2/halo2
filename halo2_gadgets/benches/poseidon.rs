@@ -15,8 +15,14 @@ use halo2_gadgets::poseidon::{
     primitives::{self as poseidon, generate_constants, ConstantLength, Mds, Spec},
     Hash, Pow5Chip, Pow5Config,
 };
-use std::convert::TryInto;
+use korrekt::{
+    circuit_analyzer::analyzer::{self, Analyzer},
+    io::analyzer_io_type::{
+        self, AnalyzerType, LookupMethod, VerificationInput, VerificationMethod,
+    },
+};
 use std::marker::PhantomData;
+use std::{collections::HashMap, convert::TryInto};
 
 use criterion::{criterion_group, criterion_main, Criterion};
 use rand::rngs::OsRng;
@@ -145,19 +151,9 @@ fn bench_poseidon<S, const WIDTH: usize, const RATE: usize, const L: usize>(
     S: Spec<Fp, WIDTH, RATE> + Copy + Clone,
 {
     // Initialize the polynomial commitment parameters
-    let params: Params<vesta::Affine> = Params::new(K);
+ 
 
-    let empty_circuit = HashCircuit::<S, WIDTH, RATE, L> {
-        message: Value::unknown(),
-        _spec: PhantomData,
-    };
-
-    // Initialize the proving key
-    let vk = keygen_vk(&params, &empty_circuit).expect("keygen_vk should not fail");
-    let pk = keygen_pk(&params, vk, &empty_circuit).expect("keygen_pk should not fail");
-
-    let prover_name = name.to_string() + "-prover";
-    let verifier_name = name.to_string() + "-verifier";
+    let analyzer_name = name.to_string() + "-analyzer";
 
     let mut rng = OsRng;
     let message = (0..L)
@@ -165,61 +161,40 @@ fn bench_poseidon<S, const WIDTH: usize, const RATE: usize, const L: usize>(
         .collect::<Vec<_>>()
         .try_into()
         .unwrap();
-    let output = poseidon::Hash::<_, S, ConstantLength<L>, WIDTH, RATE>::init().hash(message);
 
     let circuit = HashCircuit::<S, WIDTH, RATE, L> {
         message: Value::known(message),
         _spec: PhantomData,
     };
 
-    c.bench_function(&prover_name, |b| {
+    c.bench_function(&analyzer_name, |b| {
         b.iter(|| {
-            let mut transcript = Blake2bWrite::<_, _, Challenge255<_>>::init(vec![]);
-            create_proof(
-                &params,
-                &pk,
-                &[circuit],
-                &[&[&[output]]],
-                &mut rng,
-                &mut transcript,
-            )
-            .expect("proof generation should not fail")
+            let analyzer_input: analyzer_io_type::AnalyzerInput = analyzer_io_type::AnalyzerInput {
+                verification_method: VerificationMethod::Random,
+                verification_input: VerificationInput {
+                    instance_cells: HashMap::new(),
+                    iterations: 5,
+                },
+                lookup_method: LookupMethod::Interpreted,
+            };
+            let mut analyzer = Analyzer::new(
+                &circuit,
+                K,
+                AnalyzerType::UnderconstrainedCircuit,
+                Some(&analyzer_input),
+            ).unwrap();
+            let _output_status = analyzer
+            .analyze_underconstrained(&analyzer_input)
+            .unwrap()
+            .output_status;
         })
-    });
-
-    // Create a proof
-    let mut transcript = Blake2bWrite::<_, _, Challenge255<_>>::init(vec![]);
-    create_proof(
-        &params,
-        &pk,
-        &[circuit],
-        &[&[&[output]]],
-        &mut rng,
-        &mut transcript,
-    )
-    .expect("proof generation should not fail");
-    let proof = transcript.finalize();
-
-    c.bench_function(&verifier_name, |b| {
-        b.iter(|| {
-            let strategy = SingleVerifier::new(&params);
-            let mut transcript = Blake2bRead::<_, _, Challenge255<_>>::init(&proof[..]);
-            assert!(verify_proof(
-                &params,
-                pk.get_vk(),
-                strategy,
-                &[&[&[output]]],
-                &mut transcript
-            )
-            .is_ok());
-        });
     });
 }
 
 fn criterion_benchmark(c: &mut Criterion) {
     bench_poseidon::<MySpec<3, 2>, 3, 2, 2>("WIDTH = 3, RATE = 2", c);
-    bench_poseidon::<MySpec<9, 8>, 9, 8, 8>("WIDTH = 9, RATE = 8", c);
-    bench_poseidon::<MySpec<12, 11>, 12, 11, 11>("WIDTH = 12, RATE = 11", c);
+    //bench_poseidon::<MySpec<9, 8>, 9, 8, 8>("WIDTH = 9, RATE = 8", c);
+    //bench_poseidon::<MySpec<12, 11>, 12, 11, 11>("WIDTH = 12, RATE = 11", c);
 }
 
 criterion_group!(benches, criterion_benchmark);
